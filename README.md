@@ -44,6 +44,7 @@ In this clean release, **Level 4 means the former Level 4B**.
 
 ## 🏗️ Build Entry Points
 
+- `bash build_level1.sh`
 - `bash build_level2.sh`
 - `bash build_level3.sh`
 - `bash build_level4.sh`
@@ -92,3 +93,22 @@ So this repo should be understood as:
 - **essential tests**
 
 rather than an archive of ready-made experiment outputs.
+
+## 🔧 Level 1 Generation
+
+Level 1 problem-statement rewriting is generated through:
+
+- `glasses/translate_verified_problems.py`
+- `glasses/merge_translated_problems.py`
+- `bash build_level1.sh`
+
+By default, `build_level1.sh` writes:
+
+- `re_issues/llm_verified500.json`
+
+and supports overriding:
+
+- `FILTER_FILE=...`
+- `OUTPUT_FILE=...`
+- `L1_MODEL_NAME=...`
+- `L1_WORKERS=...`
