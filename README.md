@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="figures/logo.png" alt="Schrödinger-Repo logo" width="520">
+</p>
+
 # 🧪📦 Schrödinger-Repo
 
 This repository is a clean release of **Schrödinger-Repo**, a framework for **SWE-bench code-agent leakage analysis**.
