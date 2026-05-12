@@ -1,0 +1,9 @@
+model:
+  model_name: "openai/gpt-5.4-mini"
+  model_kwargs:
+    custom_llm_provider: "openai"
+    api_base: "https://api.qingyuntop.top/v1"
+    drop_params: true
+    temperature: 0.0
+    parallel_tool_calls: true
+  cost_tracking: "ignore_errors"

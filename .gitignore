@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.cache/
+tmp/
+output/
+re_issues/
+trajectories_*/
+nohup*.log
+run_*.log
+preds.json
+latest_run.pid
+.DS_Store
