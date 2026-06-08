@@ -32,6 +32,7 @@ def test_level2_bundle_generation_writes_repo_bundle(tmp_path):
     )
 
     output_dir = tmp_path / "output"
+    cache_dir = tmp_path / "cache"
     script_path = Path(__file__).resolve().parents[2] / "glasses" / "main.py"
     project_root = Path(__file__).resolve().parents[2]
     env = _base_env(project_root)
@@ -50,6 +51,8 @@ def test_level2_bundle_generation_writes_repo_bundle(tmp_path):
             str(repo_root),
             "--output-dir",
             str(output_dir),
+            "--cache-dir",
+            str(cache_dir),
         ],
         check=True,
         capture_output=True,
@@ -145,6 +148,7 @@ def test_identity_only_flag_keeps_legacy_cli_path(tmp_path):
     (pkg / "query.py").write_text("def build_query():\n    return 1\n")
 
     output_dir = tmp_path / "output"
+    cache_dir = tmp_path / "cache"
     script_path = Path(__file__).resolve().parents[2] / "glasses" / "main.py"
     project_root = Path(__file__).resolve().parents[2]
 
@@ -176,6 +180,8 @@ def test_identity_only_flag_keeps_legacy_cli_path(tmp_path):
             str(repo_root),
             "--output-dir",
             str(output_dir),
+            "--cache-dir",
+            str(cache_dir),
         ],
         check=True,
         capture_output=True,
@@ -196,8 +202,56 @@ def test_identity_only_flag_keeps_legacy_cli_path(tmp_path):
     assert symbol_map == {}
     assert path_map == {}
     assert meta["level"] == "identity_only"
+    assert meta["canonical_repo_root_name"] == "demo"
     assert meta["enabled_layers"] == ["identity_l1"]
     assert index["variants"] == [{"name": "variant_0", "seed": 42, "variant_index": 0}]
+
+
+def test_identity_only_maps_inferred_import_root_to_working_repository(tmp_path):
+    repo_root = tmp_path / "repos"
+    repo_dir = repo_root / "swe-bench_demo__demo-1"
+    pkg = repo_dir / "src" / "actualpkg"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("")
+    (pkg / "query.py").write_text("def build_query():\n    return 1\n")
+
+    output_dir = tmp_path / "output"
+    cache_dir = tmp_path / "cache"
+    script_path = Path(__file__).resolve().parents[2] / "glasses" / "main.py"
+    project_root = Path(__file__).resolve().parents[2]
+
+    subprocess.run(
+        [
+            sys.executable,
+            str(script_path),
+            "--instance-id",
+            "demo__demo-1",
+            "--seed",
+            "42",
+            "--identity-only",
+            "--repo-root",
+            str(repo_root),
+            "--output-dir",
+            str(output_dir),
+            "--cache-dir",
+            str(cache_dir),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=_base_env(project_root),
+        cwd=project_root,
+    )
+
+    bundle_dir = output_dir / "demo" / "variant_0"
+    identity_map = json.loads((bundle_dir / "identity_map.json").read_text())
+    meta = json.loads((bundle_dir / "mapping_meta.json").read_text())
+
+    assert identity_map == {
+        "demo": "working_repository",
+        "actualpkg": "working_repository",
+    }
+    assert meta["canonical_repo_root_name"] == "actualpkg"
 
 
 def test_level2_bundle_does_not_map_third_party_or_builtin_tokens(tmp_path):
@@ -330,6 +384,7 @@ def test_identity_namespace_l2_keeps_repo_root_only_in_identity_map(tmp_path):
     (subpkg / "worker.py").write_text("def nested_job():\n    return 1\n")
 
     output_dir = tmp_path / "output"
+    cache_dir = tmp_path / "cache"
     script_path = Path(__file__).resolve().parents[2] / "glasses" / "main.py"
     project_root = Path(__file__).resolve().parents[2]
 
@@ -347,6 +402,8 @@ def test_identity_namespace_l2_keeps_repo_root_only_in_identity_map(tmp_path):
             str(repo_root),
             "--output-dir",
             str(output_dir),
+            "--cache-dir",
+            str(cache_dir),
         ],
         check=True,
         capture_output=True,
@@ -363,6 +420,7 @@ def test_identity_namespace_l2_keeps_repo_root_only_in_identity_map(tmp_path):
 
     assert identity_map == {"demo": "working_repository"}
     assert meta["level"] == "identity_namespace_l2"
+    assert meta["canonical_repo_root_name"] == "demo"
     assert meta["enabled_layers"] == ["identity_l1", "namespace_l2"]
     assert "demo" not in symbol_map
     assert "demo" not in path_map
@@ -382,6 +440,7 @@ def test_level2_bundle_generation_writes_multiple_variants(tmp_path):
     )
 
     output_dir = tmp_path / "output"
+    cache_dir = tmp_path / "cache"
     script_path = Path(__file__).resolve().parents[2] / "glasses" / "main.py"
     project_root = Path(__file__).resolve().parents[2]
     env = _base_env(project_root)
@@ -405,6 +464,8 @@ def test_level2_bundle_generation_writes_multiple_variants(tmp_path):
                 str(repo_root),
                 "--output-dir",
                 str(output_dir),
+                "--cache-dir",
+                str(cache_dir),
             ],
             check=True,
             capture_output=True,

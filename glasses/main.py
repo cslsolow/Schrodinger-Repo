@@ -36,6 +36,55 @@ REPO_PACKAGE_ALIASES: dict[str, str] = {
 }
 
 
+def _infer_importable_repo_roots(repo_path: Path) -> list[str]:
+    roots = set()
+    ignored = {".git", "__pycache__", "migrations", "tests", "testing"}
+
+    for child in repo_path.iterdir():
+        if not child.is_dir():
+            continue
+        if child.name.startswith(".") or child.name in ignored:
+            continue
+        if (child / "__init__.py").exists():
+            roots.add(child.name)
+
+    src_dir = repo_path / "src"
+    if src_dir.is_dir():
+        for child in src_dir.iterdir():
+            if not child.is_dir():
+                continue
+            if child.name.startswith(".") or child.name in ignored:
+                continue
+            if (child / "__init__.py").exists():
+                roots.add(child.name)
+
+    return sorted(roots)
+
+
+def _resolve_repo_identity_names(project_repo: str, repo_path: Path) -> tuple[list[str], str]:
+    inferred_roots = _infer_importable_repo_roots(repo_path)
+    fallback_alias = REPO_PACKAGE_ALIASES.get(project_repo)
+
+    identity_names = [project_repo]
+    for root in inferred_roots:
+        if root not in identity_names:
+            identity_names.append(root)
+
+    if len(inferred_roots) == 1:
+        canonical = inferred_roots[0]
+    elif fallback_alias and fallback_alias in inferred_roots:
+        canonical = fallback_alias
+    elif fallback_alias:
+        canonical = fallback_alias
+    else:
+        canonical = project_repo
+
+    if canonical not in identity_names:
+        identity_names.append(canonical)
+
+    return identity_names, canonical
+
+
 def _add_identifier_tokens(name, all_tokens, token_to_families, extractor):
     for token in extractor.tokenize_identifier(name):
         token_low = token.lower()
@@ -64,11 +113,9 @@ def _extend_tokens_from_level2_targets(all_tokens, token_to_families, level2_tar
         _add_identifier_tokens(name, all_tokens, token_to_families, extractor)
 
 
-def _prune_level2_targets_for_identity(level2_targets, project_repo, pkg_alias=None):
+def _prune_level2_targets_for_identity(level2_targets, identity_names):
     pruned = {key: list(values) for key, values in level2_targets.items()}
-    identity_names = {project_repo}
-    if pkg_alias:
-        identity_names.add(pkg_alias)
+    identity_names = set(identity_names)
     pruned["modules"] = [name for name in pruned["modules"] if name not in identity_names]
     pruned["directories"] = [name for name in pruned["directories"] if name not in identity_names]
     return pruned
@@ -167,7 +214,7 @@ def main():
         if matching: repo_path = matching[0]
         else: return console.print(f"[red]Repo not found[/red]")
 
-    pkg_alias = REPO_PACKAGE_ALIASES.get(project_repo)
+    identity_names, canonical_repo_root_name = _resolve_repo_identity_names(project_repo, repo_path)
 
     # 1. 提取标识符
     extractor = RepoIdentifierExtractor(repo_path)
@@ -175,7 +222,7 @@ def main():
     current_identifiers = extractor.get_safe_identifiers()  # CHANGED: was get_identifiers()
     level2_targets = extractor.get_level2_namespace_targets()
     if args.mapping_mode == "identity_namespace_l2":
-        level2_targets = _prune_level2_targets_for_identity(level2_targets, project_repo, pkg_alias)
+        level2_targets = _prune_level2_targets_for_identity(level2_targets, identity_names)
     reserved_tokens = extractor.get_reserved_tokens()
 
     all_current_ids = []
@@ -189,9 +236,8 @@ def main():
     all_tokens = {token for token in all_tokens if token not in reserved_tokens}
     all_tokens = {token for token in all_tokens if token not in FORBIDDEN_IDENTITY_TOKENS}
     if args.mapping_mode == "identity_namespace_l2":
-        all_tokens.discard(project_repo.lower())
-        if pkg_alias:
-            all_tokens.discard(pkg_alias.lower())
+        for name in identity_names:
+            all_tokens.discard(name.lower())
     token_to_families = {token: fam for token, fam in token_to_families.items() if token in all_tokens}
     
     console.print(f"[bold blue]Unique tokens found in repo:[/bold blue] {len(all_tokens)}")
@@ -310,12 +356,8 @@ def main():
     bundle_dir = _bundle_variant_dir(args.output_dir, project_repo, args.variant_index)
     bundle_dir.mkdir(parents=True, exist_ok=True)
 
-    pkg_alias = REPO_PACKAGE_ALIASES.get(project_repo)
-
     if args.mapping_mode == "identity_only":
-        identity_map = {project_repo: FIXED_REPOSITORY_ALIAS}
-        if pkg_alias:
-            identity_map[pkg_alias] = FIXED_REPOSITORY_ALIAS
+        identity_map = {name: FIXED_REPOSITORY_ALIAS for name in identity_names}
         namespace_symbol_map = {}
         namespace_path_map = {}
     else:
@@ -333,9 +375,8 @@ def main():
                 for name in level2_targets["modules"]
             },
         }
-        # Remove pkg_alias from namespace_symbol_map: it belongs in identity_map instead
-        if pkg_alias:
-            namespace_symbol_map.pop(pkg_alias, None)
+        for name in identity_names:
+            namespace_symbol_map.pop(name, None)
         namespace_path_map = {
             **{
                 name: mapper.reconstruct_identifier(name.rsplit(".", 1)[0], token_mapping, extractor) + ".py"
@@ -347,9 +388,7 @@ def main():
             },
         }
         if args.mapping_mode == "identity_namespace_l2":
-            identity_map = {project_repo: FIXED_REPOSITORY_ALIAS}
-            if pkg_alias:
-                identity_map[pkg_alias] = FIXED_REPOSITORY_ALIAS
+            identity_map = {name: FIXED_REPOSITORY_ALIAS for name in identity_names}
         else:
             identity_map = {}
         namespace_symbol_map, namespace_path_map = _drop_identity_overlaps(
@@ -377,6 +416,7 @@ def main():
             {
                 "mapping_version": "l2-v1",
                 "repo_name": project_repo,
+                "canonical_repo_root_name": canonical_repo_root_name,
                 "seed": args.seed,
                 "level": args.mapping_mode,
                 "mapping_scope": "repo",
