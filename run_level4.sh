@@ -48,7 +48,7 @@ _run() {
   echo "output: ${OUTPUT_DIR}"
   PYTHONPATH="src:.:${PYTHONPATH:-}" python3 -m minisweagent.run.benchmarks.swebench_mapped \
     -c swebench.yaml \
-    -c swebench_qingyun_gpt54mini.yaml \
+    -c swebench_openai_gpt54mini.yaml \
     --subset verified \
     --split test \
     --workers 24 \

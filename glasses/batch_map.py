@@ -96,7 +96,7 @@ def main():
     parser.add_argument("--model", type=str, default=None, help="Model for token mapping")
     parser.add_argument("--api-base", type=str, help="API base URL")
     parser.add_argument("--api-key", type=str, help="API key")
-    parser.add_argument("--repo-root", type=Path, default=Path("/data/swebench/workspace_henglian/SWE-Search/tmp/repos"), help="Root directory of repos")
+    parser.add_argument("--repo-root", type=Path, default=Path("./repos"), help="Root directory of repos")
     parser.add_argument("--output-dir", type=Path, default=Path("../output/semantic_mappings"), help="Output directory")
     parser.add_argument("--variant-count", type=int, default=1, help="Number of repo-level bundle variants to generate")
     parser.add_argument(

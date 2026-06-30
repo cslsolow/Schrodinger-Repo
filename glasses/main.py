@@ -187,7 +187,7 @@ def main():
     parser.add_argument("--api-key", type=str, default=None, help="API key")
     parser.add_argument("--workers", type=int, default=4, help="Number of workers")
     parser.add_argument("--output-dir", type=Path, default=Path("./output"), help="Output directory")
-    parser.add_argument("--repo-root", type=Path, default=Path("/data/swebench/workspace_henglian/SWE-Search/tmp/repos"), help="Repo root")
+    parser.add_argument("--repo-root", type=Path, default=Path("./repos"), help="Repo root")
     parser.add_argument("--cache-dir", type=Path, default=Path("./cache"), help="Cache directory")
     parser.add_argument("--variant-index", type=int, default=0, help="Repo-level bundle variant index")
     parser.add_argument("--variant-count", type=int, default=1, help="Expected repo-level bundle variant count")

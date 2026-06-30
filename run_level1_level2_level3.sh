@@ -38,10 +38,10 @@ fi
 
 LEVEL3_TRAJ_DIR="${LEVEL3_TRAJ_DIR:-${PROJECT_DIR}/../v2_baseline/mini-swe-agent/trajectories_baseline_gpt54mini}"
 if [[ ! -d "${LEVEL3_TRAJ_DIR}" ]]; then
-  LEVEL3_TRAJ_DIR="/data/swebench/silinchen/Silin-SWE-Bench/v2_baseline/mini-swe-agent/trajectories_baseline_gpt54mini"
+  LEVEL3_TRAJ_DIR=""
 fi
 
-LEVEL3_REPO_ROOT="${LEVEL3_REPO_ROOT:-/data/swebench/workspace_henglian/SWE-Search/tmp/repos}"
+LEVEL3_REPO_ROOT="${LEVEL3_REPO_ROOT:-${PROJECT_DIR}/repos}"
 if [[ ! -d "${LEVEL3_REPO_ROOT}" ]]; then
   echo "Error: Level 3 repo root not found: ${LEVEL3_REPO_ROOT}" >&2
   exit 1
@@ -49,7 +49,7 @@ fi
 
 LEVEL2_SEMANTIC_SEED="${LEVEL2_SEMANTIC_SEED:-42}"
 LEVEL3_SEED="${LEVEL3_SEED:-42}"
-MAPPED_MODEL_CONFIG="${MAPPED_MODEL_CONFIG:-swebench_qingyun_gpt54mini.yaml}"
+MAPPED_MODEL_CONFIG="${MAPPED_MODEL_CONFIG:-swebench_openai_gpt54mini.yaml}"
 MAPPED_MODEL_NAME="${MAPPED_MODEL_NAME:-}"
 MAPPED_LITELLM_REGISTRY_PATH="${MAPPED_LITELLM_REGISTRY_PATH:-${PROJECT_DIR}/litellm_registry_gpt54mini.json}"
 OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_DIR}/trajectories_level1_level2_level3}"

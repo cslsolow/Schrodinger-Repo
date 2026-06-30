@@ -5,6 +5,7 @@ import sys
 import tempfile
 import uuid
 import importlib.util
+import os
 from pathlib import Path
 
 from glasses.runtime_alias import write_runtime_alias_bundle
@@ -65,7 +66,15 @@ def build_official_eval_script(test_spec, *, runtime_alias_prefix: str = "") -> 
 
 
 def _load_official_python_constants():
-    module_path = "/data/swebench/silinchen/SWE-bench/swebench/harness/constants/python.py"
+    module_path = os.environ.get(
+        "SWEBENCH_PYTHON_CONSTANTS",
+        str(Path(__file__).resolve().parents[1] / "SWE-bench" / "swebench" / "harness" / "constants" / "python.py"),
+    )
+    if not Path(module_path).exists():
+        raise FileNotFoundError(
+            "SWE-bench constants not found. Set SWEBENCH_PYTHON_CONSTANTS to "
+            "swebench/harness/constants/python.py."
+        )
     spec = importlib.util.spec_from_file_location("swebench_python_constants_local", module_path)
     module = importlib.util.module_from_spec(spec)
     assert spec and spec.loader

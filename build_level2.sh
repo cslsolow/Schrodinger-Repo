@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="${SCRIPT_DIR}"
 OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_DIR}/output/level2_repo_maps_verified500}"
-API_BASE="${OPENAI_BASE_URL:-https://api.qingyuntop.top/v1}"
+API_BASE="${OPENAI_BASE_URL:-https://api.openai.com/v1}"
 LEVEL2_SEED="${LEVEL2_SEED:-42}"
 LEVEL2_VARIANT_COUNT="${LEVEL2_VARIANT_COUNT:-1}"
 LEVEL2_MAPPING_MODE="${LEVEL2_MAPPING_MODE:-identity_namespace_l2}"

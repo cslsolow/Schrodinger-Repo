@@ -3,6 +3,7 @@
 import argparse
 import importlib.util
 import json
+import os
 import subprocess
 import shutil
 import sys
@@ -19,7 +20,7 @@ except ModuleNotFoundError:
     from verified_dataset_paths import default_verified_arrow
 
 ROOT = Path(__file__).resolve().parents[1]
-SWEBENCH_ROOT = Path("/data/swebench/silinchen/SWE-bench")
+SWEBENCH_ROOT = Path(os.environ.get("SWEBENCH_ROOT", ROOT / "SWE-bench"))
 sys.path.insert(0, str(ROOT / "src"))
 
 try:
@@ -79,11 +80,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--baseline-trajectories",
-        default="/data/swebench/silinchen/Silin-SWE-Bench/v2_baseline/mini-swe-agent/trajectories_baseline_gpt54mini_django",
+        default=str(ROOT / ".." / "v2_baseline" / "mini-swe-agent" / "trajectories_baseline_gpt54mini_django"),
     )
     parser.add_argument(
         "--repo-root",
-        default="/data/swebench/workspace_henglian/SWE-Search/tmp/repos",
+        default=str(ROOT / "repos"),
     )
     parser.add_argument(
         "--output-root",

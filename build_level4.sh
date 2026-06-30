@@ -9,7 +9,8 @@ LOG_DIR="${PROJECT_DIR}/tmp/verified_level4b_builder"
 LOG_FILE="${LOG_DIR}/verified500_$(date +%Y%m%d_%H%M%S).log"
 LEVEL4B_BUILD_WORKERS="${LEVEL4B_BUILD_WORKERS:-4}"
 LEVEL4B_MODEL_NAME="${LEVEL4B_MODEL_NAME:-openai/gpt-5.4-mini}"
-LEVEL4B_MODEL_CONFIG="${LEVEL4B_MODEL_CONFIG:-${PROJECT_DIR}/src/minisweagent/config/benchmarks/swebench_qingyun_gpt54mini.yaml}"
+LEVEL4B_MODEL_CONFIG="${LEVEL4B_MODEL_CONFIG:-${PROJECT_DIR}/src/minisweagent/config/benchmarks/swebench_openai_gpt54mini.yaml}"
+LEVEL4B_REPO_ROOT="${LEVEL4B_REPO_ROOT:-${PROJECT_DIR}/repos}"
 FORWARD_ARGS=("$@")
 
 while [[ $# -gt 0 ]]; do
@@ -57,10 +58,11 @@ _run() {
   echo "workers: ${LEVEL4B_BUILD_WORKERS}"
   echo "model-name: ${LEVEL4B_MODEL_NAME}"
   echo "model-config: ${LEVEL4B_MODEL_CONFIG}"
+  echo "repo-root: ${LEVEL4B_REPO_ROOT}"
   echo "log: ${LOG_FILE}"
   PYTHONPATH="src:.:${PYTHONPATH:-}" python3 glasses/build_verified_level4b_store.py \
     --filter-file "${FILTER_FILE}" \
-    --repo-root "/data/swebench/workspace_henglian/SWE-Search/tmp/repos" \
+    --repo-root "${LEVEL4B_REPO_ROOT}" \
     --output-root "${OUTPUT_ROOT}" \
     --tmp-root "${PROJECT_DIR}/tmp/verified_level4b_builder" \
     --target-variants 3 \
@@ -73,7 +75,7 @@ _run() {
 }
 
 if [[ "${LEVEL4B_BUILD_BACKGROUND:-1}" == "1" ]]; then
-  export PROJECT_DIR FILTER_FILE OUTPUT_ROOT LOG_FILE LEVEL4B_BUILD_WORKERS LEVEL4B_MODEL_NAME LEVEL4B_MODEL_CONFIG PYTHONUNBUFFERED TMPDIR
+  export PROJECT_DIR FILTER_FILE OUTPUT_ROOT LOG_FILE LEVEL4B_BUILD_WORKERS LEVEL4B_MODEL_NAME LEVEL4B_MODEL_CONFIG LEVEL4B_REPO_ROOT PYTHONUNBUFFERED TMPDIR
   export -f _run
   nohup bash -c '_run "$@"' bash "${FORWARD_ARGS[@]}" >> "${LOG_FILE}" 2>&1 &
   echo "$!" > "${OUTPUT_ROOT}/latest_build.pid"

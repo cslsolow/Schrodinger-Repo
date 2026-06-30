@@ -12,10 +12,10 @@ fi
 
 LEVEL3_TRAJ_DIR="${LEVEL3_TRAJ_DIR:-${PROJECT_DIR}/../v2_baseline/mini-swe-agent/trajectories_baseline_gpt54mini}"
 if [[ ! -d "${LEVEL3_TRAJ_DIR}" ]]; then
-  LEVEL3_TRAJ_DIR="/data/swebench/silinchen/Silin-SWE-Bench/v2_baseline/mini-swe-agent/trajectories_baseline_gpt54mini"
+  LEVEL3_TRAJ_DIR=""
 fi
 
-LEVEL3_REPO_ROOT="${LEVEL3_REPO_ROOT:-/data/swebench/workspace_henglian/SWE-Search/tmp/repos}"
+LEVEL3_REPO_ROOT="${LEVEL3_REPO_ROOT:-${PROJECT_DIR}/repos}"
 if [[ ! -d "${LEVEL3_REPO_ROOT}" ]]; then
   echo "Error: Level 3 repo root not found: ${LEVEL3_REPO_ROOT}" >&2
   exit 1
@@ -60,7 +60,7 @@ _run() {
   echo "output: ${OUTPUT_DIR}"
   PYTHONPATH="src:.:${PYTHONPATH:-}" python3 -m minisweagent.run.benchmarks.swebench_mapped \
     -c swebench.yaml \
-    -c swebench_qingyun_gpt54mini.yaml \
+    -c swebench_openai_gpt54mini.yaml \
     --subset verified \
     --split test \
     --workers 24 \

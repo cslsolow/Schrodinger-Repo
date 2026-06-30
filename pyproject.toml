@@ -12,8 +12,7 @@ requires-python = ">=3.10"
 license = {file = "LICENSE.md"}
 keywords = ["nlp", "agents", "code"]
 authors = [
-    {name = "Kilian Lieret", email = "kilian.lieret@posteo.de" },
-    {name = "Carlos E. Jimenez", email = "carlosej@princeton.edu" },
+    {name = "Anonymous Authors" },
 ]
 
 # Classifiers help users find your project by categorizing it.

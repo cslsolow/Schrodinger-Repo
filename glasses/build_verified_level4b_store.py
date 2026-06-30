@@ -6,6 +6,7 @@ import concurrent.futures
 import difflib
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -61,7 +62,7 @@ MODE = "llm_function_body_rewrite"
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--filter-file", default=str(ROOT / "instances_django_mapped_merged.txt"))
-    parser.add_argument("--repo-root", default="/data/swebench/workspace_henglian/SWE-Search/tmp/repos")
+    parser.add_argument("--repo-root", default=os.environ.get("LEVEL4B_REPO_ROOT", str(ROOT / "repos")))
     parser.add_argument("--output-root", default=str(ROOT / "output" / "verified_perturbations" / "level4"))
     parser.add_argument("--mode", default=MODE)
     parser.add_argument("--seed", type=int, default=42)
@@ -80,7 +81,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-name", default=None)
     parser.add_argument(
         "--model-config",
-        default=str(ROOT / "src" / "minisweagent" / "config" / "benchmarks" / "swebench_qingyun_gpt54mini.yaml"),
+        default=str(ROOT / "src" / "minisweagent" / "config" / "benchmarks" / "swebench_openai_gpt54mini.yaml"),
     )
     return parser.parse_args()
 
