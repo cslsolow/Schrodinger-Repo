@@ -1,8 +1,8 @@
 model:
-  model_name: "openai/deepseek-chat"
+  model_name: "openai/deepseek-v4-flash"
   model_kwargs:
     custom_llm_provider: "openai"
-    api_base: "https://aihubmix.com/v1"
+    api_base: "https://api.deepseek.com"
     drop_params: true
     temperature: 0.0
     parallel_tool_calls: true
