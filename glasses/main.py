@@ -216,7 +216,6 @@ def main():
 
     identity_names, canonical_repo_root_name = _resolve_repo_identity_names(project_repo, repo_path)
 
-    # 1. 提取标识符
     extractor = RepoIdentifierExtractor(repo_path)
     extractor.extract(max_workers=args.workers)
     current_identifiers = extractor.get_safe_identifiers()  # CHANGED: was get_identifiers()
@@ -229,7 +228,6 @@ def main():
     for cat_ids in current_identifiers.values():
         all_current_ids.extend(cat_ids)
 
-    # 仅从 Level 2(A) 目标提取词根，避免普通词/第三方词污染映射空间
     all_tokens = set()
     token_to_families = {}
     _extend_tokens_from_level2_targets(all_tokens, token_to_families, level2_targets, extractor)
@@ -242,7 +240,6 @@ def main():
     
     console.print(f"[bold blue]Unique tokens found in repo:[/bold blue] {len(all_tokens)}")
 
-    # 2. 全局词根缓存
     global_repo_cache = args.cache_dir / project_repo
     global_repo_cache.mkdir(parents=True, exist_ok=True)
     token_cache_file = global_repo_cache / "token_candidates.json"
@@ -253,7 +250,6 @@ def main():
             global_token_candidates = json.load(f)
         console.print(f"[green]Loaded {len(global_token_candidates)} tokens from cache[/green]")
 
-    # 3. 增量生成
     missing_tokens = [t for t in all_tokens if t not in global_token_candidates]
     
     # SemanticMapper calls litellm.completion directly (see glasses/mapper.py), not model.query(),
@@ -270,7 +266,6 @@ def main():
     
     if missing_tokens and (args.model or args.api_base or args.api_key):
         console.print(f"[bold yellow]New tokens to map: {len(missing_tokens)}[/bold yellow]")
-        # 改进：传入家族上下文，让 LLM 进行“成对/成组”生成
         new_token_candidates = mapper.generate_token_candidates(
             missing_tokens, 
             brand=project_repo, 
@@ -286,38 +281,30 @@ def main():
     for token in all_tokens:
         global_token_candidates.setdefault(token, [token])
 
-    # 4. 基于 Seed 生成词根映射
-    # 必须把所有词根传递给 mapper 建立 token_candidates_cache 供下一步使用
     mapper.token_candidates_cache = global_token_candidates
-    # 避免冲突：虚构词不能是仓库中已有的词根，也不能是系统保留词
     token_mapping = mapper.create_token_mapping(
         list(all_tokens),
         args.seed,
         avoid_tokens=all_tokens | reserved_tokens | FORBIDDEN_IDENTITY_TOKENS,
     )
 
-    # 改进：清洗词根映射，确保“假名”也不是 Python 关键字或系统词
     stop_words = reserved_tokens | FORBIDDEN_IDENTITY_TOKENS
     clean_token_mapping = {}
     for real_t, virt_t in token_mapping.items():
         real_t_low = real_t.lower()
-        # 如果真实词本身就是白名单成员，映射回它自己
         if real_t_low in stop_words:
             clean_token_mapping[real_t_low] = real_t_low
         elif virt_t.lower() in stop_words:
-            # 如果假名落在白名单里，通过加后缀进行“去敏”
             clean_token_mapping[real_t_low] = f"{virt_t}_"
         else:
             clean_token_mapping[real_t_low] = virt_t
     token_mapping = clean_token_mapping
     
-    # 5. 重构标识符映射 (with collision detection)
     all_real_id_set = set(all_current_ids)
     used_virtual_ids = set()
     final_mapping = {}
 
     for oid in all_current_ids:
-        # 如果整个标识符是白名单词汇（如 'self', 'open'），不映射
         if oid.lower() in stop_words:
             continue
 
@@ -333,18 +320,15 @@ def main():
         if virtual_id in all_real_id_set or virtual_id in used_virtual_ids:
             continue
 
-        # 兜底：如果重构后的完整标识符撞了白名单
         if virtual_id.lower() in stop_words:
             virtual_id = f"{virtual_id}_"
 
-        # 如果重构结果没变，不存入映射表
         if virtual_id == oid:
             continue
 
         final_mapping[oid] = virtual_id
         used_virtual_ids.add(virtual_id)
 
-    # 6. 保存
     instance_output = args.output_dir / args.instance_id
     instance_output.mkdir(parents=True, exist_ok=True)
     with open(instance_output / "token_mapping.json", "w") as f:
@@ -445,7 +429,6 @@ def main():
 
     console.print(f"[bold green]Generated token-based mapping for {args.instance_id}[/bold green]")
     console.print(f"Total Identifiers: {len(final_mapping)}")
-    # 新增：输出费用
     console.print(f"FINAL_COST: {getattr(mapper.model, 'cost', 0.0):.6f}")
 
 if __name__ == "__main__":

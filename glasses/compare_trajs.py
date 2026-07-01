@@ -23,7 +23,6 @@ def generate_markdown(instance_id, real_traj_path, output_md_path):
         item = history[i]
         role = item.get("role")
         
-        # 助手发出的指令 (Action)
         if role == "assistant":
             md_content.append(f"\n## 🔢 Step {step_count}")
             md_content.append("### 🤖 Assistant Action")
@@ -36,21 +35,18 @@ def generate_markdown(instance_id, real_traj_path, output_md_path):
             md_content.append(f"| **Virtual (Agent's Mind)** | `{virtual_action}` |")
             md_content.append(f"| **Real (Docker Executed)** | `{real_action}` |")
             
-            # 如果包含代码块，单独列出以便阅读
             if "```" in virtual_action or len(virtual_action) > 100:
                 md_content.append("\n**Virtual Detail:**")
                 md_content.append(f"```bash\n{virtual_action}\n```")
                 md_content.append("**Real Detail:**")
                 md_content.append(f"```bash\n{real_action}\n```")
             
-        # 环境返回的结果 (Observation)
         elif role == "user":
             md_content.append("\n### 📥 Environment Observation")
             
             virtual_obs = item.get("virtual_content", "N/A")
             real_obs = item.get("content", "N/A")
             
-            # 使用折叠框显示 Observation，因为通常很长
             md_content.append("<details>")
             md_content.append("<summary><b>View Observation Comparison</b> (Click to expand)</summary>\n")
             

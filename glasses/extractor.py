@@ -8,7 +8,6 @@ import multiprocessing
 from rich.progress import Progress
 
 def _extract_identifiers_from_single_file(file_path: Path):
-    # 提取仓库内所有的“语义符号”：类名、函数名、以及所有出现的名称（变量/属性等）
     ids = {"classes": set(), "functions": set(), "names": set()}
     try:
         content = file_path.read_text()
@@ -20,7 +19,6 @@ def _extract_identifiers_from_single_file(file_path: Path):
             elif isinstance(node, ast.FunctionDef) or isinstance(node, ast.AsyncFunctionDef):
                 if not node.name.startswith('_'):
                     ids["functions"].add(node.name)
-            # 新增：提取所有属性访问和变量名，建立全量词典
             elif isinstance(node, ast.Attribute):
                 ids["names"].add(node.attr)
             elif isinstance(node, ast.Name):
@@ -41,50 +39,36 @@ class RepoIdentifierExtractor:
             "modules": set(),
             "classes": set(),
             "functions": set(),
-            "vocabulary": set(), # 存储全量词汇
+            "vocabulary": set(),
         }
         self._python_builtin_words = {name.lower() for name in dir(builtins)}
         self._external_import_roots: Set[str] = set()
-        # 语言与系统基础设施白名单（绝不映射这些词）
         self.STOP_WORDS = {
-            # Python 关键字
             'with', 'except', 'finally', 'yield', 'return', 'import', 'from', 'as', 'if', 'else', 'elif',
             'for', 'in', 'while', 'break', 'continue', 'class', 'def', 'try', 'raise', 'is', 'not', 'and', 'or',
             'None', 'True', 'False', 'async', 'await', 'pass', 'global', 'nonlocal', 'assert', 'lambda', 'del',
-            # 内置函数
             'open', 'print', 'len', 'range', 'enumerate', 'list', 'dict', 'set', 'tuple', 'str', 'int', 'float',
             'bool', 'type', 'isinstance', 'issubclass', 'getattr', 'setattr', 'hasattr', 'dir', 'vars', 'super',
             'object', 'iter', 'next', 'map', 'filter', 'sorted', 'any', 'all', 'sum', 'min', 'max', 'abs', 'round',
             'zip', 'reversed', 'format', 'input', 'hash', 'id', 'property', 'staticmethod', 'classmethod',
-            # 常见库/模块名
             'os', 'sys', 're', 'json', 'time', 'datetime', 'math', 'hashlib', 'pathlib', 'logging', 'argparse',
             'threading', 'multiprocessing', 'concurrent', 'subprocess', 'shutil', 'tempfile', 'io', 'base64',
             'collections', 'itertools', 'functools', 'operator', 'unittest', 'pytest', 'abc', 'typing',
-            # Shell/System 关键指令与状态词
             'total', 'root', 'user', 'group', 'chmod', 'chown', 'bin', 'usr', 'etc', 'var', 'tmp', 'home',
             'drwxr', 'rwxr', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
             'command', 'found', 'error', 'warning', 'bash', 'shell', 'line', 'stdin', 'stdout', 'stderr',
             'grep', 'sed', 'awk', 'ls', 'cd', 'cat', 'rm', 'mkdir', 'cp', 'mv', 'git', 'diff', 'patch', 'index',
-            # Python 基础设施与魔术文件
             '__init__.py', '__main__.py', '__init__', '__main__', 'setup.py', 'conftest.py', 'manage.py', 'tox.ini',
-            # 常见的双下划线魔术方法
             '__str__', '__repr__', '__dict__', '__class__', '__module__', '__name__', '__file__', '__path__',
             '__getitem__', '__setitem__', '__iter__', '__next__', '__len__', '__call__', '__enter__', '__exit__',
-            # Git Patch 关键字
             '---', '+++', '@@', 'diff', 'git', 'index', 'a', 'b',
-            # 通用参数/属性/元数据
             'args', 'kwargs', 'self', 'cls', 'name', 'path', 'file', 'dir', 'data', 'text', 'content', 'value',
             'input', 'output', 'params', 'config', 'settings', 'options', 'results', 'exception',
             'true', 'false', 'none', 'null', 'status', 'code', 'type', 'mode', 'encoding', 'version',
-            # 常见动词/逻辑词（防止长标识符被过度拆解映射）
             'contains', 'exists', 'has', 'is', 'get', 'set', 'update', 'delete', 'create', 'remove'
         }
 
     def tokenize_identifier(self, identifier: str) -> List[str]:
-        """
-        将标识符拆分为词根列表。
-        改进：如果是 Python 魔术方法，不拆分，直接返回。
-        """
         if identifier.startswith('__') and identifier.endswith('__'):
             return [identifier]
             
@@ -92,10 +76,8 @@ class RepoIdentifierExtractor:
         if '.' in name:
             name = name.rsplit('.', 1)[0]
         
-        # 使用正则表达式拆分标识符
         tokens = re.findall(r'[A-Z]?[a-z0-9]+|[A-Z]+(?=[A-Z][a-z]|\b)|[0-9]+', name)
         
-        # 返回原始大小写的词根序列
         return [t for t in tokens if len(t) > 0]
 
     def extract(self, max_workers: int = None):
@@ -105,8 +87,6 @@ class RepoIdentifierExtractor:
         ignored_dirs = {".git", "__pycache__", "migrations", "tests", "testing"}
         py_files = []
 
-        # 先提取仓库内“库名”（可 import 的顶层 package）：repo_root/<pkg>/__init__.py
-        # 这与 directories 不同：directories 是全量目录名；libraries 只记录顶层包名，便于更稳定地做语义映射。
         for child in self.repo_path.iterdir():
             if not child.is_dir():
                 continue

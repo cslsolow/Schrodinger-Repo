@@ -54,7 +54,6 @@ def get_target_instance_ids(args):
     return [iid for iid in repo_representatives.values() if should_process_repo(iid, args)], "repos"
 
 def run_single_instance(instance_id: str, args):
-    """运行单个 instance 的映射生成命令"""
     try:
         cost = 0.0
         for variant_index in range(args.variant_count):
