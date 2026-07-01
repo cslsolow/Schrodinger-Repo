@@ -469,7 +469,13 @@ def test_verify_instance_reports_partial_when_targets_exhausted(tmp_path, monkey
         lambda *args, **kwargs: {
             "status": "ok",
             "returncode": 0,
-            "report": {"patch_successfully_applied": True, "tests_status": {"PASS_TO_PASS": {"failure": []}}},
+            "report": {
+                "patch_successfully_applied": True,
+                "tests_status": {
+                    "PASS_TO_PASS": {"failure": []},
+                    "FAIL_TO_PASS": {"failure": ["test_bug_still_fails"]},
+                },
+            },
         },
     )
 
@@ -663,7 +669,13 @@ def test_verify_instance_passes_recent_failure_feedback_to_next_attempt(tmp_path
         lambda *args, **kwargs: {
             "status": "ok",
             "returncode": 0,
-            "report": {"patch_successfully_applied": True, "tests_status": {"PASS_TO_PASS": {"failure": []}}},
+            "report": {
+                "patch_successfully_applied": True,
+                "tests_status": {
+                    "PASS_TO_PASS": {"failure": []},
+                    "FAIL_TO_PASS": {"failure": ["test_bug_still_fails"]},
+                },
+            },
         },
     )
 

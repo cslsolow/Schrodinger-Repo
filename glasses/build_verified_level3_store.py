@@ -373,7 +373,12 @@ def pass_to_pass_clean(result: dict) -> bool:
     report = result.get("report") or {}
     tests = report.get("tests_status") or {}
     p2p = tests.get("PASS_TO_PASS") or {}
-    return report.get("patch_successfully_applied") and not p2p.get("failure")
+    f2p = tests.get("FAIL_TO_PASS") or {}
+    return (
+        report.get("patch_successfully_applied")
+        and not p2p.get("failure")
+        and bool(f2p.get("failure"))
+    )
 
 
 def summarize_failure(result: dict) -> dict:

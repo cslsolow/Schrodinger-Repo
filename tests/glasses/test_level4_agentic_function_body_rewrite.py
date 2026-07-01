@@ -469,7 +469,7 @@ def test_verify_instance_verified_keeps_attempt_artifacts(tmp_path, monkeypatch)
                 "patch_successfully_applied": True,
                 "tests_status": {
                     "PASS_TO_PASS": {"failure": []},
-                    "FAIL_TO_PASS": {"failure": []},
+                    "FAIL_TO_PASS": {"failure": ["pkg.tests.test_bug_still_fails"]},
                 },
             },
         }
