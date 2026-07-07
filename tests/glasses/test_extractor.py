@@ -20,6 +20,9 @@ def sample_repo(tmp_path):
     (pkg / "utils.py").write_text(
         "import requests\n"
         "from numpy import ndarray\n"
+        "from mypackage.subpkg.worker import nested_job as run_nested_job\n"
+        "\n"
+        "DEFAULT_TIMEOUT = 30\n"
         "\n"
         "def helper_function(data):\n"
         "    return internal_calc(data)\n"
@@ -147,7 +150,12 @@ def test_level2_namespace_targets_limit_scope(sample_repo):
     assert "utils.py" in targets["files"]
     assert "mypackage" in targets["directories"]
     assert "data" not in targets["functions"]
-    assert "db_table" not in targets["names"]
+    assert "DEFAULT_TIMEOUT" in targets["names"]
+    assert "db_table" in targets["names"]
+    assert "nested_job" in targets["names"]
+    assert "run_nested_job" in targets["names"]
+    assert "requests" not in targets["names"]
+    assert "ndarray" not in targets["names"]
 
 
 def test_reserved_tokens_include_python_builtins_and_external_roots(sample_repo):

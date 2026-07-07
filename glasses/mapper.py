@@ -22,8 +22,8 @@ _IDENTIFIER_FRAGMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\Z")
 
 
 class SemanticMapper:
-    def __init__(self, model_name: str = None, model_config: Dict = None):
-        self.model = get_model(model_name, model_config)
+    def __init__(self, model_name: str = None, model_config: Dict = None, require_model: bool = True):
+        self.model = get_model(model_name, model_config) if require_model else None
         self.token_candidates_cache: Dict[str, List[str]] = {}
 
     @staticmethod
@@ -189,6 +189,9 @@ Terms:
         return {word: [word] for word in batch}
 
     def generate_token_candidates(self, tokens: List[str], brand: str = None, context: Dict[str, List[str]] = None, max_workers: int = 5) -> Dict[str, List[str]]:
+        if self.model is None:
+            raise ValueError("A model is required to generate token candidates.")
+
         tokens_to_query = []
         for t in tokens:
             t_key = t.lower()

@@ -30,9 +30,11 @@ class SemanticMappingManager:
         self.bundle = None
         self.enabled_layers = enabled_layers or []
         self.project_name = project_name
+        self.strict_session_reverse = False
 
         if self._has_mapping_bundle(instance_dir):
             self.bundle = load_mapping_bundle(instance_dir)
+            self.strict_session_reverse = True
             bundle_layers = self.bundle["mapping_meta"].get("enabled_layers", [])
             self.enabled_layers = bundle_layers if enabled_layers is None else enabled_layers
             self.forward_map = self._build_runtime_forward_map()
@@ -53,6 +55,7 @@ class SemanticMappingManager:
         # Key: virtual_name, Value: real_name
         # Accumulates across the entire instance lifetime
         self.session_notebook: dict[str, str] = {}
+        self.session_path_notebook: dict[str, str] = {}
 
         # Debug log path
         self.debug_log_path = debug_log_path or (instance_dir / "translator_debug.jsonl")
@@ -299,27 +302,73 @@ class SemanticMappingManager:
             folded_symbols=False,
         )
 
-    def _replace_path_segments(self, token: str, rules_exact: dict[str, str], rules_folded: dict[str, str]) -> str:
+    def _lookup_path_rule(
+        self,
+        segment: str,
+        rules_exact: dict[str, str],
+        rules_folded: dict[str, str],
+    ) -> tuple[str, str | None]:
+        replacement = rules_exact.get(segment)
+        if replacement is not None:
+            return replacement, segment
+
+        lowered = segment.lower()
+        replacement = rules_folded.get(lowered)
+        if replacement is None:
+            return segment, None
+
+        canonical = next((key for key in rules_exact if key.lower() == lowered), segment)
+        return replacement, canonical
+
+    def _record_path_notebook(self, virtual_segment: str, real_segment: str | None) -> None:
+        if real_segment is not None and virtual_segment != real_segment:
+            self.session_path_notebook[virtual_segment] = real_segment
+
+    def _replace_path_segments(
+        self,
+        token: str,
+        rules_exact: dict[str, str],
+        rules_folded: dict[str, str],
+        *,
+        record_notebook: bool,
+    ) -> str:
         leading_slash = token.startswith("/")
         segments = token.split("/")
         rewritten = []
         for segment in segments:
-            replacement = rules_exact.get(segment)
-            if replacement is None:
-                replacement = rules_folded.get(segment.lower(), segment)
+            replacement, real_segment = self._lookup_path_rule(segment, rules_exact, rules_folded)
+            if record_notebook:
+                self._record_path_notebook(replacement, real_segment)
             rewritten.append(replacement)
         result = "/".join(rewritten)
         if leading_slash and not result.startswith("/"):
             return "/" + result
         return result
 
-    def _replace_module_segments(self, token: str, rules_exact: dict[str, str], rules_folded: dict[str, str]) -> str:
-        return ".".join(
-            rules_exact.get(segment, rules_folded.get(segment.lower(), segment))
-            for segment in token.split(".")
-        )
+    def _replace_module_segments(
+        self,
+        token: str,
+        rules_exact: dict[str, str],
+        rules_folded: dict[str, str],
+        *,
+        record_notebook: bool,
+    ) -> str:
+        rewritten = []
+        for segment in token.split("."):
+            replacement, real_segment = self._lookup_path_rule(segment, rules_exact, rules_folded)
+            if record_notebook:
+                self._record_path_notebook(replacement, real_segment)
+            rewritten.append(replacement)
+        return ".".join(rewritten)
 
-    def _rewrite_paths(self, text: str, rules_exact: dict[str, str], rules_folded: dict[str, str]) -> tuple[str, dict[str, str]]:
+    def _rewrite_paths(
+        self,
+        text: str,
+        rules_exact: dict[str, str],
+        rules_folded: dict[str, str],
+        *,
+        record_notebook: bool,
+    ) -> tuple[str, dict[str, str]]:
         placeholders: dict[str, str] = {}
 
         def _stash(value: str) -> str:
@@ -328,7 +377,14 @@ class SemanticMappingManager:
             return key
 
         text = _SLASH_PATH_PATTERN.sub(
-            lambda m: _stash(self._replace_path_segments(m.group(), rules_exact, rules_folded)),
+            lambda m: _stash(
+                self._replace_path_segments(
+                    m.group(),
+                    rules_exact,
+                    rules_folded,
+                    record_notebook=record_notebook,
+                )
+            ),
             text,
         )
 
@@ -338,7 +394,14 @@ class SemanticMappingManager:
             bare_file_pattern = re.compile(
                 r"(?<![/\w-])(" + "|".join(re.escape(name) for name in bare_file_names) + r")(?![/\w-])"
             )
-            text = bare_file_pattern.sub(lambda m: _stash(bare_file_rules.get(m.group(), m.group())), text)
+            def _replace_bare_file(match):
+                real_name = match.group()
+                virtual_name = bare_file_rules.get(real_name, real_name)
+                if record_notebook:
+                    self._record_path_notebook(virtual_name, real_name)
+                return _stash(virtual_name)
+
+            text = bare_file_pattern.sub(_replace_bare_file, text)
         return text, placeholders
 
     def _restore_placeholders(self, text: str, placeholders: dict[str, str]) -> str:
@@ -346,11 +409,23 @@ class SemanticMappingManager:
             text = text.replace(key, value)
         return text
 
-    def _rewrite_dotted_paths(self, text: str, rules_exact: dict[str, str], rules_folded: dict[str, str]) -> str:
+    def _rewrite_dotted_paths(
+        self,
+        text: str,
+        rules_exact: dict[str, str],
+        rules_folded: dict[str, str],
+        *,
+        record_notebook: bool,
+    ) -> str:
         dotted_rules = {k: v for k, v in rules_exact.items() if "." not in k}
         dotted_rules_folded = {k.lower(): v for k, v in dotted_rules.items()}
         return _DOTTED_PATH_PATTERN.sub(
-            lambda m: self._replace_module_segments(m.group(), dotted_rules, dotted_rules_folded),
+            lambda m: self._replace_module_segments(
+                m.group(),
+                dotted_rules,
+                dotted_rules_folded,
+                record_notebook=record_notebook,
+            ),
             text,
         )
 
@@ -365,7 +440,12 @@ class SemanticMappingManager:
         record_notebook: bool,
         folded_symbols: bool,
     ) -> str:
-        text, placeholders = self._rewrite_paths(text, path_rules, path_rules_folded)
+        text, placeholders = self._rewrite_paths(
+            text,
+            path_rules,
+            path_rules_folded,
+            record_notebook=record_notebook,
+        )
         if folded_symbols:
             text = self._replace_identifiers_folded(
                 text,
@@ -381,7 +461,12 @@ class SemanticMappingManager:
                 record_notebook=record_notebook,
             )
         text = self._restore_placeholders(text, placeholders)
-        return self._rewrite_dotted_paths(text, path_rules, path_rules_folded)
+        return self._rewrite_dotted_paths(
+            text,
+            path_rules,
+            path_rules_folded,
+            record_notebook=record_notebook,
+        )
 
     def _rewrite_path_like_tokens(self, text: str, rules: dict[str, str]) -> str:
         if not rules:
@@ -427,16 +512,24 @@ class SemanticMappingManager:
         if not self.project_name or not self.virtual_project_name:
             return text
 
-        lowered_rules = {k.lower(): v for k, v in self._namespace_path_rules.items()}
+        def _rewrite_segment(segment: str) -> str:
+            replacement, real_segment = self._lookup_path_rule(
+                segment,
+                self._namespace_path_rules,
+                self._namespace_path_rules_folded,
+            )
+            self._record_path_notebook(replacement, real_segment)
+            return replacement
 
         def _rewrite_segments(tail: str, sep: str) -> str:
             if not tail:
                 return tail
-            return sep.join(lowered_rules.get(segment.lower(), segment) for segment in tail.split(sep))
+            return sep.join(_rewrite_segment(segment) for segment in tail.split(sep))
 
         def _replace_rooted_path(match):
             prefix = match.group("prefix")
             tail = match.group("tail")
+            self._record_path_notebook(self.virtual_project_name, self.project_name)
             rewritten_tail = _rewrite_segments(tail, "/")
             return f"{prefix}{self.virtual_project_name}/{rewritten_tail}"
 
@@ -448,13 +541,19 @@ class SemanticMappingManager:
         )
         text = re.sub(
             rf"(?<![\w.-]){re.escape(self.project_name)}/(?P<tail>[\w./-]+)",
-            lambda m: f"{self.virtual_project_name}/{_rewrite_segments(m.group('tail'), '/')}",
+            lambda m: (
+                self._record_path_notebook(self.virtual_project_name, self.project_name)
+                or f"{self.virtual_project_name}/{_rewrite_segments(m.group('tail'), '/')}"
+            ),
             text,
             flags=re.IGNORECASE,
         )
         text = re.sub(
             rf"(?<![\w.-]){re.escape(self.project_name)}\.(?P<tail>[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)",
-            lambda m: f"{self.virtual_project_name}.{_rewrite_segments(m.group('tail'), '.')}",
+            lambda m: (
+                self._record_path_notebook(self.virtual_project_name, self.project_name)
+                or f"{self.virtual_project_name}.{_rewrite_segments(m.group('tail'), '.')}"
+            ),
             text,
             flags=re.IGNORECASE,
         )
@@ -480,18 +579,23 @@ class SemanticMappingManager:
     def _to_real_core(self, text: str) -> str:
         original_text = text
 
-        # Build combined map: backward_map as fallback, notebook as preferred
-        combined = dict(self._bwd_id_lookup or {})
+        # For method-aligned bundle mappings, reverse symbol translation is constrained
+        # to names actually exposed during the session. Legacy flat mappings keep the
+        # historical fallback behavior for compatibility.
+        combined = {} if self.strict_session_reverse else dict(self._bwd_id_lookup or {})
         combined.update(self.session_notebook)
 
         if not combined and not self._reverse_namespace_path_rules:
             return text
 
         pattern, lookup = self._compile_exact_pattern(combined)
+        path_rules = self.session_path_notebook if self.strict_session_reverse else self._reverse_namespace_path_rules
+        path_rules_folded = {} if self.strict_session_reverse else self._reverse_namespace_path_rules_folded
+
         text = self._rewrite_paths_and_symbols(
             text,
-            path_rules=self._reverse_namespace_path_rules,
-            path_rules_folded=self._reverse_namespace_path_rules_folded,
+            path_rules=path_rules,
+            path_rules_folded=path_rules_folded,
             symbol_pattern=pattern,
             symbol_lookup=lookup,
             record_notebook=False,
@@ -575,4 +679,5 @@ class SemanticMappingManager:
             "translator_extra_calls": 0,
             "translator_table_replacements": self.translate_count,
             "session_notebook_size": len(self.session_notebook),
+            "session_path_notebook_size": len(self.session_path_notebook),
         }

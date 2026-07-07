@@ -18,7 +18,9 @@ def test_level2_bundle_generation_writes_repo_bundle(tmp_path):
     pkg.mkdir(parents=True)
     (pkg / "__init__.py").write_text("")
     (pkg / "query.py").write_text(
+        "DEFAULT_LIMIT = 10\n\n"
         "class DemoThing:\n"
+        "    query_label = 'demo'\n"
         "    pass\n\n"
         "def build_query():\n"
         "    return DemoThing()\n"
@@ -77,6 +79,8 @@ def test_level2_bundle_generation_writes_repo_bundle(tmp_path):
     assert "demo.query" in symbol_map
     assert "demo.subpkg" in symbol_map
     assert "demo.subpkg.fetcher" in symbol_map
+    assert "DEFAULT_LIMIT" in symbol_map
+    assert "query_label" in symbol_map
     assert "query.py" in path_map
     assert meta["level"] == "namespace_l2"
     assert meta["mapping_version"] == "l2-v1"
@@ -84,6 +88,7 @@ def test_level2_bundle_generation_writes_repo_bundle(tmp_path):
     assert meta["seed"] == 42
     assert meta["mapping_scope"] == "repo"
     assert meta["namespace_granularity"] == "A"
+    assert meta["target_counts"]["names"] >= 2
     assert meta["enabled_layers"] == ["namespace_l2"]
 
 
@@ -94,6 +99,7 @@ def test_level2_bundle_generation_uses_level2_target_tokens_from_cache(tmp_path)
     pkg.mkdir(parents=True)
     (pkg / "__init__.py").write_text("from demo.query import build_query\n")
     (pkg / "query.py").write_text(
+        "QUERY_TIMEOUT = 3\n\n"
         "def build_query():\n"
         "    return 1\n"
     )
@@ -137,6 +143,7 @@ def test_level2_bundle_generation_uses_level2_target_tokens_from_cache(tmp_path)
     symbol_map = json.loads((bundle_dir / "namespace_symbol_map.json").read_text())
 
     assert symbol_map["build_query"] == "forge_lookup"
+    assert symbol_map["QUERY_TIMEOUT"] == "LOOKUP_TIMEOUT"
 
 
 def test_identity_only_flag_keeps_legacy_cli_path(tmp_path):

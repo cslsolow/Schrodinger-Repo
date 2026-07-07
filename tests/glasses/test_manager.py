@@ -237,6 +237,7 @@ def test_manager_to_real_patch_round_trips_diff_text(tmp_path):
         project_name="django",
     )
 
+    manager.to_virtual_output("/testbed/django/db/models/aggregates.py Count")
     patch = (
         "diff --git a/working_repository/db/models/totals.py b/working_repository/db/models/totals.py\n"
         "--- a/working_repository/db/models/totals.py\n"
@@ -269,10 +270,29 @@ def test_manager_to_real_command_restores_cased_symbol_names(tmp_path):
         project_name="matplotlib",
     )
 
+    manager.to_virtual_output("Axis")
     translated = manager.to_real_command('python -c "print(Scale_line)"')
 
     assert "Scale_line" not in translated
     assert 'python -c "print(Axis)"' == translated
+
+
+def test_manager_bundle_reverse_does_not_restore_unobserved_virtual_symbols(tmp_path):
+    bundle_dir = tmp_path / "matplotlib"
+    bundle_dir.mkdir()
+    (bundle_dir / "identity_map.json").write_text(json.dumps({"matplotlib": "working_repository"}))
+    (bundle_dir / "namespace_symbol_map.json").write_text(json.dumps({"Axis": "Scale_line"}))
+    (bundle_dir / "namespace_path_map.json").write_text(json.dumps({}))
+    (bundle_dir / "mapping_meta.json").write_text(json.dumps({"enabled_layers": ["identity_l1", "namespace_l2"]}))
+
+    manager = SemanticMappingManager(
+        bundle_dir,
+        seed=42,
+        enabled_layers=["identity_l1", "namespace_l2"],
+        project_name="matplotlib",
+    )
+
+    assert manager.to_real_command('python -c "print(Scale_line)"') == 'python -c "print(Scale_line)"'
 
 
 def test_manager_to_real_command_round_trips_virtual_paths_and_cased_symbols(tmp_path):
@@ -292,6 +312,7 @@ def test_manager_to_real_command_round_trips_virtual_paths_and_cased_symbols(tmp
         project_name="xarray",
     )
 
+    manager.to_virtual_output("/testbed/xarray/core/dataarray.py DataArray")
     command = "sed -n '1,20p' /testbed/working_repository/nucleus/array_data.py && grep DataContainer /testbed/working_repository/nucleus/array_data.py"
     translated = manager.to_real_command(command)
 
@@ -331,6 +352,7 @@ def test_manager_to_real_command_rewrites_python_c_dotted_imports(tmp_path):
         project_name="django",
     )
 
+    manager.to_virtual_output("from django.db.models import Count; import django.utils")
     command = 'python -c "from working_repository.storage_engine.object_models import Count; import working_repository.toolkit"'
     result = manager.to_real_command(command)
 
@@ -467,6 +489,7 @@ def test_manager_preserves_shell_command_head_in_real_command(tmp_path):
 
     manager = SemanticMappingManager(bundle_dir, seed=42, enabled_layers=["namespace_l2"])
 
+    manager.to_virtual_output("aggregates.py Count")
     cmd = "sort /testbed/django/db/models/totals.py | grep Tally"
     translated = manager.to_real_command(cmd)
 
@@ -493,11 +516,34 @@ def test_manager_rewrites_dotted_module_paths_in_real_command(tmp_path):
         project_name="django",
     )
 
+    manager.to_virtual_output("from django.db.models import Sum; import django.utils")
     cmd = "python -c \"from working_repository.storage_engine.object_models import Sum; import working_repository.toolkit\""
     translated = manager.to_real_command(cmd)
 
     assert "from django.db.models import Sum" in translated
     assert "import django.utils" in translated
+
+
+def test_manager_bundle_reverse_does_not_restore_unobserved_virtual_paths(tmp_path):
+    bundle_dir = tmp_path / "django"
+    bundle_dir.mkdir()
+    (bundle_dir / "identity_map.json").write_text(json.dumps({"django": "working_repository"}))
+    (bundle_dir / "namespace_symbol_map.json").write_text(json.dumps({}))
+    (bundle_dir / "namespace_path_map.json").write_text(
+        json.dumps({"db": "storage_engine", "models": "object_models", "utils": "toolkit"})
+    )
+    (bundle_dir / "mapping_meta.json").write_text(json.dumps({"enabled_layers": ["identity_l1", "namespace_l2"]}))
+
+    manager = SemanticMappingManager(
+        bundle_dir,
+        seed=42,
+        enabled_layers=["identity_l1", "namespace_l2"],
+        project_name="django",
+    )
+
+    command = 'python -c "from working_repository.storage_engine.object_models import Sum"'
+
+    assert manager.to_real_command(command) == command
 
 
 def test_manager_error_output_maps_repo_owned_modules_but_keeps_third_party_real(tmp_path):

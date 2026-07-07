@@ -102,6 +102,9 @@ def _extend_tokens_from_level2_targets(all_tokens, token_to_families, level2_tar
     for name in level2_targets["functions"]:
         _add_identifier_tokens(name, all_tokens, token_to_families, extractor)
 
+    for name in level2_targets["names"]:
+        _add_identifier_tokens(name, all_tokens, token_to_families, extractor)
+
     for name in level2_targets["modules"]:
         for segment in name.split("."):
             _add_identifier_tokens(segment, all_tokens, token_to_families, extractor)
@@ -136,6 +139,72 @@ def _reconstruct_module_name(name, mapper, token_mapping, extractor):
         mapper.reconstruct_identifier(segment, token_mapping, extractor)
         for segment in name.split(".")
     )
+
+
+def _mapping_value_for_target(name, kind, mapper, token_mapping, extractor):
+    if kind == "module":
+        return _reconstruct_module_name(name, mapper, token_mapping, extractor)
+    if kind == "file":
+        return mapper.reconstruct_identifier(name.rsplit(".", 1)[0], token_mapping, extractor) + ".py"
+    return mapper.reconstruct_identifier(name, token_mapping, extractor)
+
+
+def _mapping_value_for_target_with_offset(name, kind, mapper, token_mapping, extractor, seed_offset):
+    if seed_offset == 0:
+        return _mapping_value_for_target(name, kind, mapper, token_mapping, extractor)
+    if kind == "module":
+        return ".".join(
+            mapper.reconstruct_identifier_with_offset(segment, token_mapping, extractor, seed_offset=seed_offset)
+            for segment in name.split(".")
+        )
+    if kind == "file":
+        return (
+            mapper.reconstruct_identifier_with_offset(name.rsplit(".", 1)[0], token_mapping, extractor, seed_offset=seed_offset)
+            + ".py"
+        )
+    return mapper.reconstruct_identifier_with_offset(name, token_mapping, extractor, seed_offset=seed_offset)
+
+
+def _build_collision_safe_mapping(
+    targets,
+    *,
+    mapper,
+    token_mapping,
+    extractor,
+    stop_words,
+    real_names,
+    used_virtual_names,
+    kind,
+):
+    mapping = {}
+    real_names = set(real_names)
+    for original in sorted(set(targets), key=lambda item: (item.count("."), item)):
+        if original.lower() in stop_words:
+            continue
+
+        virtual = _mapping_value_for_target(original, kind, mapper, token_mapping, extractor)
+        retries = 0
+        while (
+            (virtual != original and virtual in real_names)
+            or virtual in used_virtual_names
+            or virtual.lower() in stop_words
+        ) and retries < 8:
+            retries += 1
+            virtual = _mapping_value_for_target_with_offset(
+                original,
+                kind,
+                mapper,
+                token_mapping,
+                extractor,
+                seed_offset=retries,
+            )
+
+        if (virtual != original and virtual in real_names) or virtual in used_virtual_names or virtual.lower() in stop_words:
+            continue
+
+        mapping[original] = virtual
+        used_virtual_names.add(virtual)
+    return mapping
 
 
 def _bundle_variant_dir(output_dir: Path, repo_name: str, variant_index: int) -> Path:
@@ -262,9 +331,10 @@ def main():
         if args.api_key:
             model_config["model_kwargs"]["api_key"] = args.api_key
 
-    mapper = SemanticMapper(model_name=args.model, model_config=model_config)
+    has_model_config = bool(args.model or args.api_base or args.api_key)
+    mapper = SemanticMapper(model_name=args.model, model_config=model_config, require_model=has_model_config)
     
-    if missing_tokens and (args.model or args.api_base or args.api_key):
+    if missing_tokens and has_model_config:
         console.print(f"[bold yellow]New tokens to map: {len(missing_tokens)}[/bold yellow]")
         new_token_candidates = mapper.generate_token_candidates(
             missing_tokens, 
@@ -345,36 +415,56 @@ def main():
         namespace_symbol_map = {}
         namespace_path_map = {}
     else:
-        namespace_symbol_map = {
-            **{
-                name: mapper.reconstruct_identifier(name, token_mapping, extractor)
-                for name in level2_targets["classes"]
-            },
-            **{
-                name: mapper.reconstruct_identifier(name, token_mapping, extractor)
-                for name in level2_targets["functions"]
-            },
-            **{
-                name: _reconstruct_module_name(name, mapper, token_mapping, extractor)
-                for name in level2_targets["modules"]
-            },
-        }
-        for name in identity_names:
-            namespace_symbol_map.pop(name, None)
-        namespace_path_map = {
-            **{
-                name: mapper.reconstruct_identifier(name.rsplit(".", 1)[0], token_mapping, extractor) + ".py"
-                for name in level2_targets["files"]
-            },
-            **{
-                name: mapper.reconstruct_identifier(name, token_mapping, extractor)
-                for name in level2_targets["directories"]
-            },
-        }
         if args.mapping_mode == "identity_namespace_l2":
             identity_map = {name: FIXED_REPOSITORY_ALIAS for name in identity_names}
         else:
             identity_map = {}
+
+        all_real_namespace_names = set()
+        for values in level2_targets.values():
+            all_real_namespace_names.update(values)
+        all_real_namespace_names.update(identity_names)
+        used_virtual_namespace_names = set(identity_map.values())
+
+        namespace_symbol_map = {}
+        for target_key, kind in [
+            ("classes", "identifier"),
+            ("functions", "identifier"),
+            ("names", "identifier"),
+            ("modules", "module"),
+        ]:
+            namespace_symbol_map.update(
+                _build_collision_safe_mapping(
+                    level2_targets[target_key],
+                    mapper=mapper,
+                    token_mapping=token_mapping,
+                    extractor=extractor,
+                    stop_words=stop_words,
+                    real_names=all_real_namespace_names,
+                    used_virtual_names=used_virtual_namespace_names,
+                    kind=kind,
+                )
+            )
+        for name in identity_names:
+            namespace_symbol_map.pop(name, None)
+
+        namespace_path_map = {}
+        for target_key, kind in [
+            ("files", "file"),
+            ("directories", "identifier"),
+        ]:
+            namespace_path_map.update(
+                _build_collision_safe_mapping(
+                    level2_targets[target_key],
+                    mapper=mapper,
+                    token_mapping=token_mapping,
+                    extractor=extractor,
+                    stop_words=stop_words,
+                    real_names=all_real_namespace_names,
+                    used_virtual_names=used_virtual_namespace_names,
+                    kind=kind,
+                )
+            )
         namespace_symbol_map, namespace_path_map = _drop_identity_overlaps(
             identity_map,
             namespace_symbol_map,
@@ -408,6 +498,7 @@ def main():
                 "translated_issue_source": "re_issues/llm_django.json",
                 "symbol_count": len(namespace_symbol_map),
                 "path_segment_count": len(namespace_path_map),
+                "target_counts": {key: len(value) for key, value in level2_targets.items()},
                 "enabled_layers": enabled_layers,
                 "variant_index": args.variant_index,
             },
@@ -429,7 +520,7 @@ def main():
 
     console.print(f"[bold green]Generated token-based mapping for {args.instance_id}[/bold green]")
     console.print(f"Total Identifiers: {len(final_mapping)}")
-    console.print(f"FINAL_COST: {getattr(mapper.model, 'cost', 0.0):.6f}")
+    console.print(f"FINAL_COST: {getattr(mapper.model, 'cost', 0.0) if mapper.model else 0.0:.6f}")
 
 if __name__ == "__main__":
     main()

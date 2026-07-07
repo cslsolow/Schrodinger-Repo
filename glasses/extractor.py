@@ -1,5 +1,6 @@
 import ast
 import builtins
+import keyword
 import re
 from pathlib import Path
 from typing import Set, Dict, List
@@ -7,8 +8,43 @@ import concurrent.futures
 import multiprocessing
 from rich.progress import Progress
 
+
+IGNORED_DIRS = {".git", "__pycache__", "migrations", "tests", "testing"}
+
+
+def _is_ignored_python_path(py_file: Path, repo_path: Path, ignored_dirs: Set[str] = IGNORED_DIRS) -> bool:
+    parts = py_file.relative_to(repo_path).parts
+    return (
+        any(part.startswith(".") or part.startswith("_") for part in parts[:-1])
+        or any(part in ignored_dirs for part in parts[:-1])
+        or py_file.stem == "__main__"
+        or (py_file.stem.startswith("_") and py_file.stem != "__init__")
+    )
+
+
+def _assignment_target_names(target) -> set[str]:
+    names = set()
+    if isinstance(target, ast.Name):
+        names.add(target.id)
+    elif isinstance(target, (ast.Tuple, ast.List)):
+        for elt in target.elts:
+            names.update(_assignment_target_names(elt))
+    return names
+
+
+def _is_valid_identifier_name(name: str) -> bool:
+    return bool(name) and name.isidentifier() and not keyword.iskeyword(name)
+
+
 def _extract_identifiers_from_single_file(file_path: Path):
-    ids = {"classes": set(), "functions": set(), "names": set()}
+    ids = {
+        "classes": set(),
+        "functions": set(),
+        "module_variables": set(),
+        "class_attributes": set(),
+        "import_references": set(),
+        "names": set(),
+    }
     try:
         content = file_path.read_text()
         tree = ast.parse(content)
@@ -19,12 +55,37 @@ def _extract_identifiers_from_single_file(file_path: Path):
             elif isinstance(node, ast.FunctionDef) or isinstance(node, ast.AsyncFunctionDef):
                 if not node.name.startswith('_'):
                     ids["functions"].add(node.name)
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    ids["import_references"].add(alias.name)
+                    if alias.asname:
+                        ids["import_references"].add(alias.asname)
+            elif isinstance(node, ast.ImportFrom):
+                if node.module:
+                    ids["import_references"].add(node.module)
+                for alias in node.names:
+                    if alias.name != "*":
+                        ids["import_references"].add(alias.name)
+                    if alias.asname:
+                        ids["import_references"].add(alias.asname)
             elif isinstance(node, ast.Attribute):
                 ids["names"].add(node.attr)
             elif isinstance(node, ast.Name):
                 ids["names"].add(node.id)
             elif isinstance(node, ast.arg):
                 ids["names"].add(node.arg)
+
+        for stmt in tree.body:
+            if isinstance(stmt, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+                targets = stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target]
+                for target in targets:
+                    ids["module_variables"].update(_assignment_target_names(target))
+            elif isinstance(stmt, ast.ClassDef):
+                for class_stmt in stmt.body:
+                    if isinstance(class_stmt, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+                        targets = class_stmt.targets if isinstance(class_stmt, ast.Assign) else [class_stmt.target]
+                        for target in targets:
+                            ids["class_attributes"].update(_assignment_target_names(target))
     except Exception:
         pass
     return ids
@@ -39,10 +100,15 @@ class RepoIdentifierExtractor:
             "modules": set(),
             "classes": set(),
             "functions": set(),
+            "module_variables": set(),
+            "class_attributes": set(),
+            "import_references": set(),
             "vocabulary": set(),
         }
         self._python_builtin_words = {name.lower() for name in dir(builtins)}
+        self._python_keywords = {name.lower() for name in keyword.kwlist}
         self._external_import_roots: Set[str] = set()
+        self._external_import_names: Set[str] = set()
         self.STOP_WORDS = {
             'with', 'except', 'finally', 'yield', 'return', 'import', 'from', 'as', 'if', 'else', 'elif',
             'for', 'in', 'while', 'break', 'continue', 'class', 'def', 'try', 'raise', 'is', 'not', 'and', 'or',
@@ -76,7 +142,9 @@ class RepoIdentifierExtractor:
         if '.' in name:
             name = name.rsplit('.', 1)[0]
         
-        tokens = re.findall(r'[A-Z]?[a-z0-9]+|[A-Z]+(?=[A-Z][a-z]|\b)|[0-9]+', name)
+        tokens = []
+        for segment in re.split(r"[_\-.]+", name):
+            tokens.extend(re.findall(r'[A-Z]?[a-z0-9]+|[A-Z]+(?=[A-Z][a-z]|\b)|[0-9]+', segment))
         
         return [t for t in tokens if len(t) > 0]
 
@@ -84,25 +152,15 @@ class RepoIdentifierExtractor:
         if max_workers is None:
             max_workers = multiprocessing.cpu_count()
 
-        ignored_dirs = {".git", "__pycache__", "migrations", "tests", "testing"}
         py_files = []
 
-        for child in self.repo_path.iterdir():
-            if not child.is_dir():
-                continue
-            if child.name.startswith(".") or child.name in ignored_dirs:
-                continue
-            if (child / "__init__.py").exists():
-                self.internal_identifiers["libraries"].add(child.name)
+        self.internal_identifiers["libraries"].update(self._infer_importable_repo_roots())
 
         for py_file in self.repo_path.rglob("*.py"):
-            parts = py_file.relative_to(self.repo_path).parts
-            if any(part.startswith('.') or part.startswith('_') for part in parts[:-1]) or \
-               any(part in ignored_dirs for part in parts[:-1]):
-                continue
-            if py_file.stem == "__main__":
+            if _is_ignored_python_path(py_file, self.repo_path):
                 continue
 
+            parts = py_file.relative_to(self.repo_path).parts
             module_parts = list(parts[:-1])
             if py_file.stem != "__init__":
                 if py_file.stem.startswith('_'):
@@ -112,17 +170,22 @@ class RepoIdentifierExtractor:
             if module_parts:
                 self.internal_identifiers["modules"].add(".".join(module_parts))
 
-        self._external_import_roots = self._scan_external_import_roots(ignored_dirs)
+        self._external_import_roots = self._scan_external_import_roots(IGNORED_DIRS)
+        self._external_import_names = self._scan_external_import_names(IGNORED_DIRS)
 
         for path in self.repo_path.rglob("*"):
-            if any(part.startswith('.') or part.startswith('_') for part in path.parts) or \
-               any(part in ignored_dirs for part in path.parts):
+            relative_parts = path.relative_to(self.repo_path).parts
+            checked_parts = relative_parts if path.is_dir() else relative_parts[:-1]
+            if any(part.startswith('.') or part.startswith('_') for part in checked_parts) or \
+               any(part in IGNORED_DIRS for part in checked_parts):
                 continue
             
             if path.is_dir():
                 if path != self.repo_path:
                     self.internal_identifiers["directories"].add(path.name)
             elif path.suffix == ".py":
+                if _is_ignored_python_path(path, self.repo_path):
+                    continue
                 self.internal_identifiers["files"].add(path.name)
                 py_files.append(path)
 
@@ -139,17 +202,35 @@ class RepoIdentifierExtractor:
         for res in results:
             self.internal_identifiers["classes"].update(c for c in res["classes"] if c.lower() not in reserved_tokens)
             self.internal_identifiers["functions"].update(f for f in res["functions"] if f.lower() not in reserved_tokens)
+            self.internal_identifiers["module_variables"].update(
+                n for n in res["module_variables"] if n.lower() not in reserved_tokens
+            )
+            self.internal_identifiers["class_attributes"].update(
+                n for n in res["class_attributes"] if n.lower() not in reserved_tokens
+            )
+            self.internal_identifiers["import_references"].update(
+                n for n in res["import_references"] if n.lower() not in reserved_tokens
+            )
             self.internal_identifiers["vocabulary"].update(n for n in res["names"] if n.lower() not in reserved_tokens)
 
     def get_identifiers(self) -> Dict[str, List[str]]:
         return {k: sorted(list(v)) for k, v in self.internal_identifiers.items()}
 
     def get_reserved_tokens(self) -> Set[str]:
-        return self.STOP_WORDS | self._python_builtin_words | self._external_import_roots
+        return (
+            self.STOP_WORDS
+            | self._python_builtin_words
+            | self._python_keywords
+            | self._external_import_roots
+            | self._external_import_names
+        )
 
     def get_level2_namespace_targets(self) -> Dict[str, List[str]]:
         ids = self.get_identifiers()
         reserved_tokens = self.get_reserved_tokens()
+        names = self._filter_level2_names(
+            set(ids["module_variables"]) | set(ids["class_attributes"]) | self._repo_internal_import_reference_names()
+        )
         return {
             "classes": [name for name in ids["classes"] if name.lower() not in reserved_tokens],
             "functions": [name for name in ids["functions"] if name.lower() not in reserved_tokens],
@@ -158,7 +239,7 @@ class RepoIdentifierExtractor:
             "directories": sorted(
                 name for name in self.internal_identifiers["directories"] if name.lower() not in reserved_tokens
             ),
-            "names": [],
+            "names": sorted(names),
         }
 
     def _scan_external_import_roots(self, ignored_dirs: Set[str]) -> Set[str]:
@@ -166,10 +247,7 @@ class RepoIdentifierExtractor:
         external_roots = set()
 
         for py_file in self.repo_path.rglob("*.py"):
-            parts = py_file.relative_to(self.repo_path).parts
-            if any(part.startswith(".") or part.startswith("_") for part in parts[:-1]) or any(
-                part in ignored_dirs for part in parts[:-1]
-            ):
+            if _is_ignored_python_path(py_file, self.repo_path, ignored_dirs):
                 continue
 
             try:
@@ -195,13 +273,49 @@ class RepoIdentifierExtractor:
 
         return external_roots
 
+    def _scan_external_import_names(self, ignored_dirs: Set[str]) -> Set[str]:
+        local_roots = {name.lower() for name in self.internal_identifiers["libraries"]}
+        external_names = set()
+
+        for py_file in self.repo_path.rglob("*.py"):
+            if _is_ignored_python_path(py_file, self.repo_path, ignored_dirs):
+                continue
+
+            try:
+                tree = ast.parse(py_file.read_text())
+            except Exception:
+                continue
+
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        root = alias.name.split(".", 1)[0].lower()
+                        if root and root not in local_roots:
+                            external_names.add(root)
+                            if alias.asname:
+                                external_names.add(alias.asname)
+                elif isinstance(node, ast.ImportFrom):
+                    if node.level and node.level > 0:
+                        continue
+                    module = (node.module or "").strip()
+                    if not module:
+                        continue
+                    root = module.split(".", 1)[0].lower()
+                    if root and root not in local_roots:
+                        for alias in node.names:
+                            if alias.name != "*":
+                                external_names.add(alias.name)
+                            if alias.asname:
+                                external_names.add(alias.asname)
+
+        return {name.lower() for name in external_names}
+
     def _scan_cross_file_imports(self) -> Set[str]:
         """AST-scan all .py files within self.repo_path for import targets.
         Returns set of identifiers that are imported by at least one other file."""
         imported = set()
         for py_file in self.repo_path.rglob("*.py"):
-            parts = py_file.relative_to(self.repo_path).parts
-            if any(p.startswith('.') or p.startswith('_') or p in {"migrations", "tests", "testing"} for p in parts[:-1]):
+            if _is_ignored_python_path(py_file, self.repo_path):
                 continue
             try:
                 tree = ast.parse(py_file.read_text())
@@ -224,8 +338,7 @@ class RepoIdentifierExtractor:
         """Find identifiers listed in __all__ across the repo."""
         exported = set()
         for py_file in self.repo_path.rglob("*.py"):
-            parts = py_file.relative_to(self.repo_path).parts
-            if any(p.startswith('.') or p.startswith('_') or p in {"migrations", "tests", "testing"} for p in parts[:-1]):
+            if _is_ignored_python_path(py_file, self.repo_path):
                 continue
             try:
                 tree = ast.parse(py_file.read_text())
@@ -252,6 +365,53 @@ class RepoIdentifierExtractor:
             if d.is_dir() and not d.name.startswith('.') and not d.name.startswith('_'):
                 stems.add(d.name)
         return stems
+
+    def _infer_importable_repo_roots(self) -> Set[str]:
+        roots = set()
+        for search_root in [self.repo_path, self.repo_path / "src"]:
+            if not search_root.is_dir():
+                continue
+            for child in search_root.iterdir():
+                if not child.is_dir():
+                    continue
+                if child.name.startswith(".") or child.name in IGNORED_DIRS:
+                    continue
+                if (child / "__init__.py").exists():
+                    roots.add(child.name)
+        return roots
+
+    def _repo_internal_import_reference_names(self) -> Set[str]:
+        local_roots = {name.lower() for name in self.internal_identifiers["libraries"]}
+        names = set()
+
+        for reference in self.internal_identifiers["import_references"]:
+            if not reference:
+                continue
+            parts = reference.split(".")
+            root = parts[0].lower()
+            if root in self._external_import_roots:
+                continue
+            if root in local_roots:
+                names.update(part for part in parts if part)
+                continue
+            if len(parts) == 1:
+                names.add(reference)
+        return names
+
+    def _filter_level2_names(self, names: Set[str]) -> Set[str]:
+        reserved_tokens = self.get_reserved_tokens()
+        filtered = set()
+        for name in names:
+            if not _is_valid_identifier_name(name):
+                continue
+            if name.startswith("__") and name.endswith("__"):
+                continue
+            if name.lower() in reserved_tokens:
+                continue
+            if len(name) < 4 and not name.isupper():
+                continue
+            filtered.add(name)
+        return filtered
 
     def get_safe_identifiers(self) -> Dict[str, List[str]]:
         """Return only identifiers that are safe to map.
