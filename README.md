@@ -4,7 +4,7 @@
 
 # 🧪📦 Schrödinger-Repo
 
-This repository is a clean release of **Schrödinger-Repo**, a framework for **SWE-bench code-agent leakage analysis**.
+This repository is the artifacts of **Schrödinger-Repo**, a framework for **SWE-bench code-agent leakage analysis**.
 
 In SWE-bench-style evaluation, no matter how much information may leak through benchmark metadata, the agent still only gets to see the actual repository contents **after entering the Docker environment**. Schrödinger-Repo is built around that boundary: it perturbs what the agent observes when interacting with the repository inside the container, while keeping semantics and functionality as equivalent as possible.
 
@@ -30,10 +30,6 @@ Such priors include:
   - `bash run_level1_level2_level3.sh`
 - **Level 4**
   - `bash run_level4.sh`
-
-In this clean release, **Level 4 means the former Level 4B**.
-
-- ✅ kept: `llm_function_body_rewrite` / `agentic_function_body_rewrite`
 
 ## 🪜 Level Definitions
 
